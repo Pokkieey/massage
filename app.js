@@ -22,17 +22,32 @@ async function cloudUploadSlip(dataUrl,job,amount,tip){
  if(rowErr){await cloud.storage.from('pos-payment-slips').remove([path]);throw rowErr;}
  return path;
 }
-async function cloudOwnerSlips(){
- const box=document.getElementById('cloudSlips');if(!box)return;
- box.textContent='กำลังโหลดสลิปจาก Supabase...';
- try{const shop=await cloudLogin();if(!shop){box.textContent='กรุณาเข้าสู่ระบบ Supabase';return;}
- if(shop.role!=='owner'){box.textContent='บัญชีนี้ไม่มีสิทธิ์ดูสลิปของเจ้าของร้าน';return;}
- const {data,error}=await cloud.from('pos_payment_slips').select('id,job_ref,therapist_name,service_name,service_amount,tip_amount,storage_path,paid_at').eq('shop_id',shop.shop_id).order('paid_at',{ascending:false}).limit(100);
- if(error)throw error;
- box.innerHTML=(data||[]).map(x=>`<div class="row"><div><b>${e(x.therapist_name)}</b> · ${e(x.service_name)}<div class="muted">${dt(x.paid_at)} · ${money(x.service_amount)} · ทิป ${money(x.tip_amount)}</div></div><button class="btn" data-slip-path="${e(x.storage_path)}">📷 ดูสลิป</button></div>`).join('')||'<p>ยังไม่มีสลิปใน Supabase</p>';
- box.querySelectorAll('[data-slip-path]').forEach(b=>b.onclick=async()=>{const {data,error}=await cloud.storage.from('pos-payment-slips').createSignedUrl(b.dataset.slipPath,60);if(error)return alert(error.message);window.open(data.signedUrl,'_blank','noopener,noreferrer')});
- }catch(err){box.textContent='โหลดสลิปไม่สำเร็จ: '+err.message;}
+// The owner sees actions directly on each QR transaction. No separate slip list.
+async function viewTransactionSlip(jobId){
+ if(!ownerUnlocked)return ownerLogin();
+ const job=findJob(jobId);
+ if(!job||job.status!=='paid'||job.paymentMethod!=='qr')return alert('รายการนี้ไม่ใช่รายการโอนเงิน');
+ if(job.slipImage){return showSlipImage(job,job.slipImage)}
+ if(!job.slipPath)return alert('รายการนี้ยังไม่มีรูปสลิป');
+ try{
+  // Do not show a Supabase sign-in prompt. Private slips require an authenticated
+  // session or a future server-side owner-PIN API.
+  const {data:{user}}=await cloud.auth.getUser();
+  if(!user)return alert('ยังเปิดสลิปจาก Supabase ไม่ได้: ต้องเชื่อมระบบ PIN เจ้าของกับ backend ก่อน (ไม่ต้องล็อกอิน Supabase)');
+  const {data:membership,error:memberError}=await cloud.from('pos_shop_users').select('shop_id,role').eq('user_id',user.id).eq('role','owner').limit(1);
+  if(memberError)throw memberError;
+  if(!membership?.length)return alert('บัญชีนี้ไม่มีสิทธิ์ดูสลิป');
+  const shopId=membership[0].shop_id;
+  if(!job.slipPath.startsWith(shopId+'/'))return alert('สลิปไม่อยู่ในร้านที่ได้รับสิทธิ์');
+  const {data,error}=await cloud.storage.from('pos-payment-slips').createSignedUrl(job.slipPath,120);
+  if(error)throw error;
+  showSlipImage(job,data.signedUrl);
+ }catch(err){alert('เปิดสลิปไม่สำเร็จ: '+err.message)}
 }
+function showSlipImage(job,url){
+ render(`<h1>📷 สลิปการชำระเงิน #${job.id}</h1><div class="panel slip-view"><p>${e(job.therapistName)} · ${e(job.service)} · ${dt(job.paidAt)}</p><img src="${e(url)}" alt="สลิปการชำระเงิน"><div class="toolbar"><button class="btn" onclick="owner()">← กลับหน้าเจ้าของ</button></div></div>`);
+}
+window.viewTransactionSlip=viewTransactionSlip;
 
 const P={'คอ บ่า ไหล่':[450,650,850],'นวดเท้า':[300,450,570],'นวดไทย':[300,450,570],'ไทยออยล์':[400,550,700],'นวดหัว':[500,700,900],'นวดออยล์':[500,700,900],'อโรมา':[550,800,1000],'ไทยรีดเส้น':[450,650,850],'สปอร์ต':[700,950,1250]};
 const DUR=[60,90,120],M=document.getElementById('main');
@@ -91,7 +106,7 @@ function members(){render(`<h1>🎁 สะสมครั้ง · นวดค�
 let ownerUnlocked=false;
 function owner(){if(!ownerUnlocked)return ownerLogin();ownerDashboard()}
 function ownerLogin(){render(`<h1>🔐 เข้าสู่ระบบเจ้าของร้าน</h1><section class="panel owner-login"><p class="muted">สำหรับดูรายงานและจัดการพนักงาน</p><label>รหัสผ่านทดลอง</label><input id="ownerPassword" type="password" class="input" autocomplete="off" placeholder="รหัสผ่าน"><p id="loginError" class="error-text"></p><button class="btn primary confirm-big" id="ownerSignIn">เข้าสู่ระบบ</button><p class="muted mini">เวอร์ชันทดลอง: รหัสผ่านนี้ไม่ใช่ระบบรักษาความปลอดภัยจริง ก่อนใช้งานจริงต้องเชื่อม Supabase Auth</p></section>`);document.getElementById('ownerSignIn').onclick=()=>{if(document.getElementById('ownerPassword').value==='246810'){ownerUnlocked=true;ownerDashboard()}else document.getElementById('loginError').textContent='รหัสผ่านไม่ถูกต้อง'};document.getElementById('ownerPassword').onkeydown=x=>{if(x.key==='Enter')document.getElementById('ownerSignIn').click()}}
-function ownerDashboard(){if(!ownerUnlocked)return ownerLogin();const paid=db.jobs.filter(j=>j.status==='paid'),revenue=paid.reduce((s,j)=>s+j.serviceTotal,0),commission=paid.reduce((s,j)=>s+j.therapistPay,0),tipsTotal=db.tipPayments.reduce((s,t)=>s+t.amount,0);render(`<h1>📊 หน้าเจ้าของร้าน</h1><div class="toolbar"><button class="btn" id="ownerLogout">🔒 ออกจากระบบ</button></div><div class="drawer-stats"><div class="panel">ยอดค่าบริการ<div class="price">${money(revenue)}</div></div><div class="panel">งานสำเร็จ<div class="price">${paid.length}</div></div><div class="panel">ค่าคอมหมอนวด<div class="price">${money(commission)}</div></div><div class="panel">ทิปทั้งหมด<div class="price">${money(tipsTotal)}</div></div><div class="panel">สมาชิก<div class="price">${db.members.length}</div></div></div><div class="toolbar">${btn('👩‍⚕️ จัดการหมอนวด','staff','primary')}${btn('🎁 สมาชิก','members')}${btn('💝 ทิป','tips')}${btn('🏪 เงินสด','cash')}</div><h2>📷 สลิปโอนเงินจาก Supabase</h2><div class="panel history" id="cloudSlips"><button class="btn" onclick="cloudOwnerSlips()">โหลดสลิปจาก Supabase</button></div><h2>ประวัติการชำระเงิน</h2><div class="panel history">${paid.map(j=>`<div class="row"><div><b>${e(j.therapistName)}</b><div class="muted">${e(j.service)} · ${dt(j.paidAt)} · ${j.paymentMethod==='cash'?'เงินสด':'QR'}</div></div><div><b>${money(j.serviceTotal)}</b><button class="btn" onclick="printReceipt(${j.id})">🧾 พิมพ์ใบเสร็จ</button></div></div>`).join('')||'ยังไม่มีรายการ'}</div>`);document.getElementById('ownerLogout').onclick=()=>{ownerUnlocked=false;home()};cloudOwnerSlips()}
+function ownerDashboard(){if(!ownerUnlocked)return ownerLogin();const paid=db.jobs.filter(j=>j.status==='paid'),revenue=paid.reduce((s,j)=>s+j.serviceTotal,0),commission=paid.reduce((s,j)=>s+j.therapistPay,0),tipsTotal=db.tipPayments.reduce((s,t)=>s+t.amount,0);render(`<h1>📊 หน้าเจ้าของร้าน</h1><div class="toolbar"><button class="btn" id="ownerLogout">🔒 ออกจากระบบ</button></div><div class="drawer-stats"><div class="panel">ยอดค่าบริการ<div class="price">${money(revenue)}</div></div><div class="panel">งานสำเร็จ<div class="price">${paid.length}</div></div><div class="panel">ค่าคอมหมอนวด<div class="price">${money(commission)}</div></div><div class="panel">ทิปทั้งหมด<div class="price">${money(tipsTotal)}</div></div><div class="panel">สมาชิก<div class="price">${db.members.length}</div></div></div><div class="toolbar">${btn('👩‍⚕️ จัดการหมอนวด','staff','primary')}${btn('🎁 สมาชิก','members')}${btn('💝 ทิป','tips')}${btn('🏪 เงินสด','cash')}</div><h2>ประวัติการชำระเงิน</h2><div class="panel history">${paid.map(j=>`<div class="row"><div><b>${e(j.therapistName)}</b><div class="muted">${e(j.service)} · ${dt(j.paidAt)} · ${j.paymentMethod==='cash'?'เงินสด':'QR'}</div></div><div><b>${money(j.serviceTotal)}</b><button class="btn" onclick="printReceipt(${j.id})">🧾 พิมพ์ใบเสร็จ</button>${j.paymentMethod==='qr'?`<button class="btn" onclick="viewTransactionSlip(${j.id})">📷 ดูสลิป</button>`:''}</div></div>`).join('')||'ยังไม่มีรายการ'}</div>`);document.getElementById('ownerLogout').onclick=()=>{ownerUnlocked=false;home()}}
 function staff(){if(!ownerUnlocked)return ownerLogin();render(`<h1>👩‍⚕️ จัดการหมอนวด</h1><div class="panel"><h2>รายชื่อหมอนวด</h2>${db.therapists.map(t=>`<div class="row staff-row"><div><b>${e(t.name)}</b><div class="muted">ค่าคอม ${r(t.rate*100)}% · ประกัน ${money(t.guarantee||0)}/วัน · ${t.active===false?'ปิดใช้งาน':'เปิดใช้งาน'}</div></div><div class="toolbar"><button class="btn" onclick="editStaff(${t.id})">แก้ไข</button><button class="btn" onclick="toggleStaff(${t.id})">${t.active===false?'เปิดใช้งาน':'ปิดใช้งาน'}</button></div></div>`).join('')}</div><section class="panel"><h2>เพิ่มหมอนวด</h2><label>ชื่อหมอนวด</label><input id="staffName" class="input" placeholder="ชื่อ"><label>ค่าคอม (%)</label><input id="staffRate" class="input" type="number" min="0" max="100" value="30"><label>ค่าประกันรายวัน (บาท)</label><input id="staffGuarantee" class="input" type="number" min="0" value="0"><button class="btn primary" id="addStaff">+ เพิ่มหมอนวด</button></section>${btn('← กลับหน้าเจ้าของ','owner')}`);document.getElementById('addStaff').onclick=()=>{const name=document.getElementById('staffName').value.trim(),rate=Number(document.getElementById('staffRate').value),guarantee=Number(document.getElementById('staffGuarantee').value);if(!name||!Number.isFinite(rate)||rate<0||rate>100||!Number.isFinite(guarantee)||guarantee<0)return alert('กรอกข้อมูลให้ถูกต้อง');db.therapists.push({id:id(),name,rate:rate/100,guarantee,active:true});save();staff()}}
 function editStaff(tid){if(!ownerUnlocked)return ownerLogin();const t=db.therapists.find(x=>x.id===tid);if(!t)return staff();render(`<h1>แก้ไขข้อมูลหมอนวด</h1><section class="panel owner-login"><label>ชื่อ</label><input class="input" id="editName" value="${e(t.name)}"><label>ค่าคอม (%)</label><input class="input" id="editRate" type="number" min="0" max="100" value="${r(t.rate*100)}"><label>ค่าประกันรายวัน</label><input class="input" id="editGuarantee" type="number" min="0" value="${t.guarantee||0}"><div class="toolbar"><button class="btn primary" id="saveStaff">บันทึกการแก้ไข</button>${btn('ยกเลิก','staff')}</div></section>`);document.getElementById('saveStaff').onclick=()=>{const name=document.getElementById('editName').value.trim(),rate=Number(document.getElementById('editRate').value),guarantee=Number(document.getElementById('editGuarantee').value);if(!name||!Number.isFinite(rate)||rate<0||rate>100||!Number.isFinite(guarantee)||guarantee<0)return alert('กรอกข้อมูลให้ถูกต้อง');Object.assign(t,{name,rate:rate/100,guarantee});save();staff()}}
 function toggleStaff(tid){if(!ownerUnlocked)return ownerLogin();const t=db.therapists.find(x=>x.id===tid);if(t){t.active=t.active===false;save()}staff()}
@@ -121,4 +136,4 @@ window.printReceipt=printReceipt;
 window.startService=startService;window.chooseDuration=chooseDuration;window.createJob=createJob;window.payment=payment;window.payTip=payTip;window.nav=nav;window.home=home;window.checkout=checkout;window.cash=cash;window.tips=tips;window.members=members;window.owner=owner;window.staff=staff;window.editStaff=editStaff;window.toggleStaff=toggleStaff;
 document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>nav(b.dataset.nav));document.addEventListener('click',ev=>{const b=ev.target.closest('[data-action]');if(b)nav(b.dataset.action)});home();
 
-window.cloudOwnerSlips=cloudOwnerSlips;
+
