@@ -26,3 +26,5 @@ IMPORTANT LIMITATIONS:
 - Payment verification is manual, not automatic bank verification.
 - Not production ready for real financial/customer records.
 - Never use a service_role/secret API key in browser code.
+
+V7 CAMERA FIX: The camera button now uses a native file input overlaid on its label (rather than programmatic click on a hidden input), improving iOS Safari compatibility. Camera access requires HTTPS and device/browser permission. Some desktop browsers offer a file picker instead of camera. The existing Supabase Auth prompt is NOT changed by this camera-only patch.
