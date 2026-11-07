@@ -4,46 +4,28 @@ const KEY='massage_pos_demo_v1';
 
 // Supabase: slips only. Sales, staff, and members are still local demo data.
 const cloud=window.supabase.createClient('https://xhusnvghxjxstdylhruo.supabase.co','sb_publishable_eGiuI2UhqvV8VSxl_9229Q_Qaps6CFc');
-let cloudShop=null;
-async function cloudLogin(){
- const {data:{user}}=await cloud.auth.getUser();
- if(user){const {data,error}=await cloud.from('pos_shop_users').select('shop_id,role').eq('user_id',user.id).limit(1);if(error)throw error;if(data?.length){cloudShop=data[0];return cloudShop;}throw Error('บัญชีนี้ยังไม่ได้รับสิทธิ์เข้าร้าน');}
- const email=prompt('อีเมลพนักงาน/เจ้าของร้าน (Supabase Auth)');if(!email)return null;
- const password=prompt('รหัสผ่านบัญชี Supabase');if(!password)return null;
- const {error}=await cloud.auth.signInWithPassword({email,password});if(error)throw error;
- return cloudLogin();
-}
+// Pilot shop: uploads need no staff login. Public URLs are unlisted, not private.
+const PILOT_SHOP='b9ec5851-4b5f-45f1-804e-554272986b5d';
+const SLIP_BUCKET='pos-slips-easy';
 async function cloudUploadSlip(dataUrl,job,amount,tip){
- const shop=await cloudLogin();if(!shop)throw Error('ต้องเข้าสู่ระบบก่อนอัปโหลดสลิป');
  const blob=await(await fetch(dataUrl)).blob();
- const path=`${shop.shop_id}/${crypto.randomUUID()}.jpg`;
- const {error:upErr}=await cloud.storage.from('pos-payment-slips').upload(path,blob,{contentType:'image/jpeg',upsert:false});if(upErr)throw upErr;
- const {error:rowErr}=await cloud.from('pos_payment_slips').insert({shop_id:shop.shop_id,job_ref:String(job.id),therapist_name:job.therapistName,service_name:job.service,service_amount:amount,tip_amount:tip,storage_path:path});
- if(rowErr){await cloud.storage.from('pos-payment-slips').remove([path]);throw rowErr;}
+ const path=`${PILOT_SHOP}/${crypto.randomUUID()}.jpg`;
+ const {error}=await cloud.storage.from(SLIP_BUCKET).upload(path,blob,{contentType:'image/jpeg',upsert:false});
+ if(error)throw error;
  return path;
 }
-// The owner sees actions directly on each QR transaction. No separate slip list.
 async function viewTransactionSlip(jobId){
  if(!ownerUnlocked)return ownerLogin();
  const job=findJob(jobId);
  if(!job||job.status!=='paid'||job.paymentMethod!=='qr')return alert('รายการนี้ไม่ใช่รายการโอนเงิน');
- if(job.slipImage){return showSlipImage(job,job.slipImage)}
+ if(job.slipImage)return showSlipImage(job,job.slipImage);
  if(!job.slipPath)return alert('รายการนี้ยังไม่มีรูปสลิป');
- try{
-  // Do not show a Supabase sign-in prompt. Private slips require an authenticated
-  // session or a future server-side owner-PIN API.
-  const {data:{user}}=await cloud.auth.getUser();
-  if(!user)return alert('ยังเปิดสลิปจาก Supabase ไม่ได้: ต้องเชื่อมระบบ PIN เจ้าของกับ backend ก่อน (ไม่ต้องล็อกอิน Supabase)');
-  const {data:membership,error:memberError}=await cloud.from('pos_shop_users').select('shop_id,role').eq('user_id',user.id).eq('role','owner').limit(1);
-  if(memberError)throw memberError;
-  if(!membership?.length)return alert('บัญชีนี้ไม่มีสิทธิ์ดูสลิป');
-  const shopId=membership[0].shop_id;
-  if(!job.slipPath.startsWith(shopId+'/'))return alert('สลิปไม่อยู่ในร้านที่ได้รับสิทธิ์');
-  const {data,error}=await cloud.storage.from('pos-payment-slips').createSignedUrl(job.slipPath,120);
-  if(error)throw error;
-  showSlipImage(job,data.signedUrl);
- }catch(err){alert('เปิดสลิปไม่สำเร็จ: '+err.message)}
+ if(!job.slipPath.startsWith(PILOT_SHOP+'/'))return alert('สลิปนี้มาจากระบบเดิม กรุณาติดต่อผู้ดูแล');
+ const {data}=cloud.storage.from(SLIP_BUCKET).getPublicUrl(job.slipPath);
+ showSlipImage(job,data.publicUrl);
 }
+window.viewTransactionSlip=viewTransactionSlip;
+
 function showSlipImage(job,url){
  render(`<h1>📷 สลิปการชำระเงิน #${job.id}</h1><div class="panel slip-view"><p>${e(job.therapistName)} · ${e(job.service)} · ${dt(job.paidAt)}</p><img src="${e(url)}" alt="สลิปการชำระเงิน"><div class="toolbar"><button class="btn" onclick="owner()">← กลับหน้าเจ้าของ</button></div></div>`);
 }

@@ -1,30 +1,11 @@
-MASSAGE POS — Supabase slip integration (pilot)
+MASSAGE POS V8 - NO EMAIL LOGIN
 
-Supabase project: xhusnvghxjxstdylhruo
-Shop ID: b9ec5851-4b5f-45f1-804e-554272986b5d
+QR payment: Take Photo / Choose Photo -> Confirm -> uploads to Supabase automatically.
+Owner Dashboard: QR transaction -> Print / View Slip.
+No email/password prompt.
 
-Already applied on Supabase:
-- pos_shops, pos_shop_users, pos_payment_slips tables
-- private pos-payment-slips storage bucket
-- RLS policies for shop staff uploads and owner-only reading
+NOTE: This is a PILOT configuration for ONE shop. Slip images are stored in a public Supabase bucket with unguessable URLs. Anyone with an image URL can view it; the Owner PIN only gates the POS interface, not the underlying URL. Avoid uploading sensitive slips until a private server-backed version is ready.
 
-REQUIRED BEFORE USING QR UPLOAD:
-1. In Supabase Authentication > Users, create an owner user with an email and password.
-2. In Supabase SQL editor, run the following with the REAL authenticated user's UUID:
+Sales, jobs and transaction history remain local to the browser. Other devices will not show the same transactions yet. Only the slip images are stored in Supabase.
 
-insert into public.pos_shop_users (shop_id,user_id,role)
-values ('b9ec5851-4b5f-45f1-804e-554272986b5d','REPLACE_WITH_AUTH_USER_UUID','owner');
-
-For staff, create their Auth user and use role 'staff'.
-3. Replace index.html, app.js, style.css in GitHub and commit.
-4. On QR payment, upload a slip and sign in with Supabase Auth credentials when asked.
-5. In Owner Dashboard (demo PIN gate), the Supabase slip list shows up to 100 recent slips for an authorized owner. Click 'ดูสลิป' for a 60-second private signed link.
-
-IMPORTANT LIMITATIONS:
-- Only QR slip files and slip metadata are cloud-synced. Sales, memberships, therapists, tips, and cash are STILL browser-local demo data.
-- The owner PIN is DEMO ONLY, not secure authentication. The cloud RLS is enforced by Supabase Auth.
-- Payment verification is manual, not automatic bank verification.
-- Not production ready for real financial/customer records.
-- Never use a service_role/secret API key in browser code.
-
-V7 CAMERA FIX: The camera button now uses a native file input overlaid on its label (rather than programmatic click on a hidden input), improving iOS Safari compatibility. Camera access requires HTTPS and device/browser permission. Some desktop browsers offer a file picker instead of camera. The existing Supabase Auth prompt is NOT changed by this camera-only patch.
+To deploy, replace index.html, app.js and style.css in your GitHub repo.
