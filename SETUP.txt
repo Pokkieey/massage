@@ -1,0 +1,28 @@
+MASSAGE POS — Supabase slip integration (pilot)
+
+Supabase project: xhusnvghxjxstdylhruo
+Shop ID: b9ec5851-4b5f-45f1-804e-554272986b5d
+
+Already applied on Supabase:
+- pos_shops, pos_shop_users, pos_payment_slips tables
+- private pos-payment-slips storage bucket
+- RLS policies for shop staff uploads and owner-only reading
+
+REQUIRED BEFORE USING QR UPLOAD:
+1. In Supabase Authentication > Users, create an owner user with an email and password.
+2. In Supabase SQL editor, run the following with the REAL authenticated user's UUID:
+
+insert into public.pos_shop_users (shop_id,user_id,role)
+values ('b9ec5851-4b5f-45f1-804e-554272986b5d','REPLACE_WITH_AUTH_USER_UUID','owner');
+
+For staff, create their Auth user and use role 'staff'.
+3. Replace index.html, app.js, style.css in GitHub and commit.
+4. On QR payment, upload a slip and sign in with Supabase Auth credentials when asked.
+5. In Owner Dashboard (demo PIN gate), the Supabase slip list shows up to 100 recent slips for an authorized owner. Click 'ดูสลิป' for a 60-second private signed link.
+
+IMPORTANT LIMITATIONS:
+- Only QR slip files and slip metadata are cloud-synced. Sales, memberships, therapists, tips, and cash are STILL browser-local demo data.
+- The owner PIN is DEMO ONLY, not secure authentication. The cloud RLS is enforced by Supabase Auth.
+- Payment verification is manual, not automatic bank verification.
+- Not production ready for real financial/customer records.
+- Never use a service_role/secret API key in browser code.
