@@ -1,0 +1,5 @@
+const crypto=require('crypto');
+function shops(){let x;try{x=JSON.parse(process.env.POS_SHOPS_JSON||'[]')}catch{throw Error('Invalid POS_SHOPS_JSON')}if(!Array.isArray(x))throw Error('Invalid shop configuration');return x.filter(s=>/^[a-z0-9-]{2,40}$/.test(s.id||'')&&typeof s.pin==='string'&&s.pin.length>=8).map(s=>({id:s.id,name:String(s.name||s.id).slice(0,80),pin:s.pin}));}
+function authorized(req){const id=String(req.headers['x-shop-id']||'');const pin=String(req.headers['x-pos-pin']||'');const s=shops().find(s=>s.id===id);if(!s||!pin||!crypto.timingSafeEqual(Buffer.from(crypto.createHash('sha256').update(pin).digest()),Buffer.from(crypto.createHash('sha256').update(s.pin).digest())))throw Error('Unauthorized: shop credentials');return s;}
+function admin(req){const p=process.env.POS_ADMIN_PIN||'';const input=String(req.headers['x-admin-pin']||'');if(p.length<12||!input||crypto.createHash('sha256').update(p).digest('hex')!==crypto.createHash('sha256').update(input).digest('hex'))throw Error('Unauthorized: admin credentials')}
+module.exports={shops,authorized,admin};
