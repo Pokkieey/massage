@@ -2,6 +2,19 @@ function getTestPin(){let pin=sessionStorage.getItem('pos_test_pin');if(!pin){pi
 'use strict';
 // Demo-only client-side store. Do not use for real customer or financial records.
 const KEY='massage_pos_demo_v1';
+// V10 pilot cloud synchronization. Shared PIN is TEST-ONLY, not multi-tenant authentication.
+let cloudRevision=0,cloudReady=false,cloudSaving=Promise.resolve(),cloudError='';
+const cloudHeaders=()=>({'Content-Type':'application/json','x-pos-pin':sessionStorage.getItem('pos_test_pin')||getTestPin()});
+async function loadCloudState(){
+ try{const response=await fetch('/api/pos-state',{headers:cloudHeaders(),cache:'no-store'});const state=await response.json();if(!response.ok)throw Error(state.error||'Cloud load failed');
+ if(state.data){db=state.data;cloudRevision=state.revision;localStorage.setItem(KEY,JSON.stringify(db));}
+ else {cloudRevision=0;const r=await fetch('/api/pos-state',{method:'PUT',headers:cloudHeaders(),body:JSON.stringify({revision:0,data:db})});const x=await r.json();if(!r.ok)throw Error(x.error||'Cloud initialization failed');cloudRevision=x.revision;}
+ cloudReady=true;cloudError='';home();updateCloudBadge();
+ }catch(err){cloudReady=false;cloudError=err.message;updateCloudBadge();alert('Cloud sync unavailable: '+err.message+'\nLocal demo mode only. Do not process real payments.');}
+}
+function updateCloudBadge(){const el=document.getElementById('cloudStatus');if(el)el.textContent=cloudReady?'☁️ Cloud synced (pilot)': '⚠️ Local demo — '+(cloudError||'not connected')}
+async function flushCloudState(snapshot){if(!cloudReady)return;const response=await fetch('/api/pos-state',{method:'PUT',headers:cloudHeaders(),body:JSON.stringify({revision:cloudRevision,data:snapshot})});const x=await response.json();if(!response.ok)throw Error(x.error||'Cloud save failed');cloudRevision=x.revision;updateCloudBadge()}
+
 
 // Supabase: slips only. Sales, staff, and members are still local demo data.
 const cloud=window.supabase.createClient('https://xhusnvghxjxstdylhruo.supabase.co','sb_publishable_eGiuI2UhqvV8VSxl_9229Q_Qaps6CFc');
@@ -36,7 +49,7 @@ const P={'คอ บ่า ไหล่':[450,650,850],'นวดเท้า':[
 const DUR=[60,90,120],M=document.getElementById('main');
 const initial=()=>({therapists:[{id:1,name:'หมอนวด A',rate:.30},{id:2,name:'หมอนวด B',rate:.30},{id:3,name:'หมอวิ่ง C',rate:.45}],jobs:[],members:[],tipPayments:[],cashDay:null,cashHistory:[],settings:{visitsRequired:10},nextId:1});
 let db;try{db=JSON.parse(localStorage.getItem(KEY))||initial()}catch{db=initial()}
-const save=()=>localStorage.setItem(KEY,JSON.stringify(db));
+const save=()=>{localStorage.setItem(KEY,JSON.stringify(db));const snapshot=structuredClone(db);cloudSaving=cloudSaving.then(()=>flushCloudState(snapshot)).catch(err=>{cloudReady=false;cloudError=err.message;updateCloudBadge();alert('Cloud save failed: '+err.message+'\nStop using this device until you reload and resolve the conflict.');});};
 const id=()=>db.nextId++;
 const money=n=>'฿'+Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
 const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -123,3 +136,6 @@ window.startService=startService;window.chooseDuration=chooseDuration;window.cre
 document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>nav(b.dataset.nav));document.addEventListener('click',ev=>{const b=ev.target.closest('[data-action]');if(b)nav(b.dataset.action)});home();
 
 
+
+// Initialize pilot cloud state after the original UI has registered its handlers.
+setTimeout(loadCloudState,100);
